@@ -246,6 +246,8 @@
 	$: showContextUsageBar = chatHistoryCompactionConfig.enabled && conversationMessages.length > 0;
 
 	const navigateHandler = async () => {
+		latestCompactionStatus = null;
+
 		// Mark the outgoing chat as read before loading the new one.
 		// $chatId still holds the previous chat here — loadChat() updates it.
 		if ($chatId && $chatId !== chatIdProp && !$temporaryChatEnabled) {
@@ -1156,6 +1158,7 @@
 
 	const initNewChat = async () => {
 		console.log('initNewChat');
+		latestCompactionStatus = null;
 		if ($user?.role !== 'admin' && $user?.permissions?.chat?.temporary_enforced) {
 			await temporaryChatEnabled.set(true);
 		}
