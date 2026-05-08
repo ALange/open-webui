@@ -2478,6 +2478,8 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if getattr(request.app.state.config, 'ENABLE_CHAT_HISTORY_COMPACTION', False):
         threshold = getattr(request.app.state.config, 'CHAT_HISTORY_COMPACTION_THRESHOLD', 64000)
         start_ratio = getattr(request.app.state.config, 'CHAT_HISTORY_COMPACTION_START_RATIO', 1.0)
+        # Validate on backend as well so direct API config updates remain safe even
+        # if frontend validation is bypassed.
         start_ratio = min(max(float(start_ratio), 0.0), 1.0)
         trigger_threshold = int(threshold * start_ratio)
         total_chars = sum(

@@ -342,14 +342,14 @@
 
 						<Tooltip
 							content={$i18n.t(
-								'Start compaction at this percentage of the threshold (0.75 means 75%).'
+								'Start compaction at this percentage of the threshold (0.75 means 75%, valid range 0 to 1).'
 							)}
 							placement="top-start"
 						>
 							<input
 								class="w-full outline-hidden bg-transparent"
 								type="number"
-								min="0.1"
+								min="0"
 								max="1"
 								step="0.01"
 								bind:value={taskConfig.CHAT_HISTORY_COMPACTION_START_RATIO}

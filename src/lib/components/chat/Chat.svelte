@@ -111,6 +111,8 @@
 	import Image from '../common/Image.svelte';
 	import { getBanners } from '$lib/apis/configs';
 
+	const DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD = 64000;
+
 	export let chatIdProp = '';
 
 	let loading = true;
@@ -182,7 +184,7 @@
 		startRatio: number;
 	} = {
 		enabled: false,
-		threshold: 64000,
+		threshold: DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD,
 		startRatio: 1.0
 	};
 	let latestCompactionStatus: {
@@ -192,9 +194,9 @@
 	} | null = null;
 	let conversationMessages = [];
 	let contextUsageChars = 0;
-	let compactionThreshold = 64000;
+	let compactionThreshold = DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD;
 	let compactionStartRatio = 1.0;
-	let compactionStartChars = 64000;
+	let compactionStartChars = DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD;
 	let contextUsagePercent = 0;
 	let compactionStartPercent = 100;
 	let showContextUsageBar = false;
@@ -235,7 +237,10 @@
 		(total, message) => total + getMessageContentLength(message?.content),
 		0
 	);
-	$: compactionThreshold = Math.max(1, Number(chatHistoryCompactionConfig.threshold) || 64000);
+	$: compactionThreshold = Math.max(
+		1,
+		Number(chatHistoryCompactionConfig.threshold) || DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD
+	);
 	$: compactionStartRatio = Math.min(
 		Math.max(Number(chatHistoryCompactionConfig.startRatio) || 1.0, 0),
 		1
@@ -843,7 +848,9 @@
 				const taskConfig = await getTaskConfig(localStorage.token);
 				chatHistoryCompactionConfig = {
 					enabled: taskConfig?.ENABLE_CHAT_HISTORY_COMPACTION ?? false,
-					threshold: taskConfig?.CHAT_HISTORY_COMPACTION_THRESHOLD ?? 64000,
+					threshold:
+						taskConfig?.CHAT_HISTORY_COMPACTION_THRESHOLD ??
+						DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD,
 					startRatio: taskConfig?.CHAT_HISTORY_COMPACTION_START_RATIO ?? 1.0
 				};
 			} catch (e) {
@@ -3025,6 +3032,11 @@
 									<div class="px-4 pb-2">
 										<div class="w-full h-1 rounded-full bg-gray-200/70 dark:bg-gray-800/80 overflow-hidden">
 											<div
+												role="progressbar"
+												aria-label={$i18n.t('Context usage')}
+												aria-valuemin={0}
+												aria-valuemax={compactionThreshold}
+												aria-valuenow={contextUsageChars}
 												class="h-full bg-gray-400/80 dark:bg-gray-500/80"
 												style={`width: ${contextUsagePercent}%`}
 											></div>
