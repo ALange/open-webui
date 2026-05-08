@@ -2247,6 +2247,7 @@ async def compact_chat_history(
     Returns the (possibly modified) form_data dict.
     """
     messages = form_data.get('messages', [])
+    context_chars_before = sum(len(get_content_from_message(m) or '') for m in messages)
 
     system_message = get_system_message(messages)
     non_system_messages = [m for m in messages if m.get('role') != 'system']
@@ -2297,6 +2298,13 @@ async def compact_chat_history(
             response_data = response
 
         if response_data:
+            usage = normalize_usage(response_data.get('usage', {}) or {})
+            tokens_per_second = usage.get('response_token/s')
+            try:
+                tokens_per_second = float(tokens_per_second)
+            except (TypeError, ValueError):
+                tokens_per_second = None
+
             summary = (
                 response_data.get('choices', [{}])[0]
                 .get('message', {})
@@ -2314,6 +2322,7 @@ async def compact_chat_history(
                 })
                 new_messages.extend(recent_messages)
                 form_data['messages'] = new_messages
+                context_chars_after = sum(len(get_content_from_message(m) or '') for m in new_messages)
                 if event_emitter:
                     await event_emitter(
                         {
@@ -2322,6 +2331,9 @@ async def compact_chat_history(
                                 'action': 'chat_history_compaction',
                                 'description': 'Chat history compaction completed',
                                 'done': True,
+                                'context_usage_chars': context_chars_after,
+                                'context_usage_chars_before': context_chars_before,
+                                'tokens_per_second': tokens_per_second,
                             },
                         }
                     )

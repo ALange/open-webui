@@ -191,12 +191,18 @@
 		description?: string;
 		done?: boolean;
 		error?: boolean;
+		context_usage_chars?: number;
+		context_usage_chars_before?: number;
+		tokens_per_second?: number;
 	} | null = null;
 	let conversationMessages = [];
 	let contextUsageChars = 0;
+	let latestCompactionUsageChars: number | null = null;
+	let latestCompactionTokensPerSecond: number | null = null;
 	let compactionThreshold = DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD;
 	let compactionStartRatio = 1.0;
 	let compactionStartChars = DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD;
+	let displayContextUsageChars = 0;
 	let contextUsagePercent = 0;
 	let compactionStartPercent = 100;
 	let showContextUsageBar = false;
@@ -242,6 +248,7 @@
 		(total, message) => total + getMessageContentLength(message?.content),
 		0
 	);
+	$: displayContextUsageChars = latestCompactionUsageChars ?? contextUsageChars;
 	$: compactionThreshold = Math.max(
 		1,
 		Number(chatHistoryCompactionConfig.threshold) || DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD
@@ -251,12 +258,14 @@
 		1
 	);
 	$: compactionStartChars = Math.max(1, Math.floor(compactionThreshold * compactionStartRatio));
-	$: contextUsagePercent = Math.min((contextUsageChars / compactionThreshold) * 100, 100);
+	$: contextUsagePercent = Math.min((displayContextUsageChars / compactionThreshold) * 100, 100);
 	$: compactionStartPercent = Math.min((compactionStartChars / compactionThreshold) * 100, 100);
 	$: showContextUsageBar = chatHistoryCompactionConfig.enabled && conversationMessages.length > 0;
 
 	const navigateHandler = async () => {
 		latestCompactionStatus = null;
+		latestCompactionUsageChars = null;
+		latestCompactionTokensPerSecond = null;
 
 		// Mark the outgoing chat as read before loading the new one.
 		// $chatId still holds the previous chat here — loadChat() updates it.
@@ -536,6 +545,16 @@
 					}
 					if (data?.action === 'chat_history_compaction') {
 						latestCompactionStatus = data;
+
+						const compactionUsageChars = Number(data?.context_usage_chars);
+						latestCompactionUsageChars = Number.isFinite(compactionUsageChars)
+							? compactionUsageChars
+							: null;
+
+						const compactionTokensPerSecond = Number(data?.tokens_per_second);
+						latestCompactionTokensPerSecond = Number.isFinite(compactionTokensPerSecond)
+							? compactionTokensPerSecond
+							: null;
 					}
 				} else if (type === 'chat:completion') {
 					chatCompletionEventHandler(data, message, event.chat_id);
@@ -3034,34 +3053,51 @@
 
 							<div class=" pb-2 {dragged ? 'z-0' : 'z-10'}">
 								{#if showContextUsageBar}
-									<div class="px-4 pb-2">
-										<div class="w-full h-1 rounded-full bg-gray-200/70 dark:bg-gray-800/80 overflow-hidden">
+									<div class="pb-2">
+										<div class="mx-auto inset-x-0 bg-transparent flex justify-center">
 											<div
-												role="progressbar"
-												aria-label={$i18n.t('Context usage')}
-												aria-valuemin={0}
-												aria-valuemax={compactionThreshold}
-												aria-valuenow={contextUsageChars}
-												class="h-full bg-gray-400/80 dark:bg-gray-500/80"
-												style={`width: ${contextUsagePercent}%`}
-											></div>
-										</div>
-										<div class="mt-1 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
-											<div>
-												{$i18n.t('Context')}: {contextUsageChars}/{compactionThreshold}
-												({contextUsagePercent.toFixed(0)}%)
-											</div>
-											<div>{$i18n.t('Compaction starts at')} {compactionStartPercent.toFixed(0)}%</div>
-										</div>
-										{#if latestCompactionStatus?.description}
-											<div
-												class="mt-0.5 text-[11px] {latestCompactionStatus?.error
-													? 'text-red-500 dark:text-red-400'
-													: 'text-gray-500 dark:text-gray-400'}"
+												class="flex flex-col px-3 {($settings?.widescreenMode ?? null)
+													? 'max-w-full'
+													: 'max-w-6xl'} w-full"
 											>
-												{latestCompactionStatus.description}
+												<div class="w-full h-1 rounded-full bg-gray-200/70 dark:bg-gray-800/80 overflow-hidden">
+													<div
+														role="progressbar"
+														aria-label={$i18n.t('Context usage')}
+														aria-valuemin={0}
+														aria-valuemax={compactionThreshold}
+														aria-valuenow={displayContextUsageChars}
+														class="h-full bg-gray-400/80 dark:bg-gray-500/80"
+														style={`width: ${contextUsagePercent}%`}
+													></div>
+												</div>
+												<div class="mt-1 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
+													<div>
+														{$i18n.t('Context')}: {displayContextUsageChars}/{compactionThreshold}
+														({contextUsagePercent.toFixed(0)}%)
+													</div>
+													<div class="text-right">
+														<div>
+															{$i18n.t('Compaction starts at')} {compactionStartPercent.toFixed(0)}%
+														</div>
+														{#if latestCompactionTokensPerSecond !== null}
+															<div>
+																{$i18n.t('Tokens/s')}: {latestCompactionTokensPerSecond.toFixed(2)}
+															</div>
+														{/if}
+													</div>
+												</div>
+												{#if latestCompactionStatus?.description}
+													<div
+														class="mt-0.5 text-[11px] {latestCompactionStatus?.error
+															? 'text-red-500 dark:text-red-400'
+															: 'text-gray-500 dark:text-gray-400'}"
+													>
+														{latestCompactionStatus.description}
+													</div>
+												{/if}
 											</div>
-										{/if}
+										</div>
 									</div>
 								{/if}
 								<MessageInput
