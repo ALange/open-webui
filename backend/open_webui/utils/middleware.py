@@ -80,6 +80,7 @@ from open_webui.utils.task import (
     get_task_model_id,
     rag_template,
     tools_function_calling_generation_template,
+    chat_history_compaction_template,
 )
 from open_webui.utils.misc import (
     deep_update,
@@ -124,6 +125,7 @@ from open_webui.config import (
     DEFAULT_CODE_INTERPRETER_PROMPT,
     CODE_INTERPRETER_PYODIDE_PROMPT,
     CODE_INTERPRETER_BLOCKED_MODULES,
+    DEFAULT_CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE,
 )
 from open_webui.env import (
     GLOBAL_LOG_LEVEL,
@@ -2226,6 +2228,84 @@ def strip_skill_mentions(messages: list[dict]) -> None:
                         part['text'] = strip_re.sub('', text).strip()
 
 
+# Number of recent (non-system) messages to preserve intact during compaction.
+# Keeping the last 4 messages (2 full exchanges) ensures the model has
+# immediate context while older history is replaced by a summary.
+_COMPACTION_KEEP_RECENT = 4
+
+
+async def compact_chat_history(request, form_data: dict, user, task_model_id: str) -> dict:
+    """Summarize the older portion of the chat history to reduce context length.
+
+    Preserves the system message (if any) and the most recent
+    ``_COMPACTION_KEEP_RECENT`` non-system messages. All earlier messages are
+    sent to the task model for summarisation and replaced with a single system
+    message containing the resulting summary.
+
+    Returns the (possibly modified) form_data dict.
+    """
+    messages = form_data.get('messages', [])
+
+    system_message = get_system_message(messages)
+    non_system_messages = [m for m in messages if m.get('role') != 'system']
+
+    if len(non_system_messages) <= _COMPACTION_KEEP_RECENT:
+        return form_data
+
+    messages_to_compact = non_system_messages[:-_COMPACTION_KEEP_RECENT]
+    recent_messages = non_system_messages[-_COMPACTION_KEEP_RECENT:]
+
+    template = request.app.state.config.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE
+    if not template:
+        template = DEFAULT_CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE
+
+    prompt = chat_history_compaction_template(template, messages_to_compact, user)
+
+    payload = {
+        'model': task_model_id,
+        'messages': [{'role': 'user', 'content': prompt}],
+        'stream': False,
+        'metadata': {
+            'task': 'chat_history_compaction',
+        },
+    }
+
+    try:
+        response = await generate_chat_completion(request, form_data=payload, user=user)
+
+        response_data = None
+        if isinstance(response, JSONResponse):
+            try:
+                response_data = json.loads(response.body.decode('utf-8', 'replace'))
+            except Exception:
+                pass
+        elif isinstance(response, dict):
+            response_data = response
+
+        if response_data:
+            summary = (
+                response_data.get('choices', [{}])[0]
+                .get('message', {})
+                .get('content', '')
+                or ''
+            )
+            if summary:
+                log.debug(f'Chat history compacted: {len(messages_to_compact)} messages replaced with summary')
+                new_messages = []
+                if system_message:
+                    new_messages.append(system_message)
+                new_messages.append({
+                    'role': 'system',
+                    'content': f'[Earlier Conversation Summary]\n{summary}',
+                })
+                new_messages.extend(recent_messages)
+                form_data['messages'] = new_messages
+    except Exception as e:
+        log.warning(f'Chat history compaction failed, proceeding without compaction: {e}')
+
+    return form_data
+
+
 async def process_chat_payload(request, form_data, user, metadata, model):
     # Pipeline Inlet -> Filter Inlet -> Chat Memory -> Chat Web Search -> Chat Image Generation
     # -> Chat Code Interpreter (Form Data Update) -> (Default) Chat Tools Function Calling
@@ -2344,6 +2424,19 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     events = []
     sources = []
+
+    # Context compaction: if enabled and total message content exceeds the configured
+    # character threshold, summarise older messages so the LLM can still respond.
+    if getattr(request.app.state.config, 'ENABLE_CHAT_HISTORY_COMPACTION', False):
+        threshold = getattr(request.app.state.config, 'CHAT_HISTORY_COMPACTION_THRESHOLD', 64000)
+        total_chars = sum(
+            len(get_content_from_message(m) or '') for m in form_data.get('messages', [])
+        )
+        if total_chars > threshold:
+            log.debug(
+                f'Chat history compaction triggered: {total_chars} chars > {threshold} threshold'
+            )
+            form_data = await compact_chat_history(request, form_data, user, task_model_id)
 
     # Folder "Project" handling
     # Check if the request has chat_id and is inside of a folder

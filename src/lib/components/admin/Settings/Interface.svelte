@@ -31,7 +31,10 @@
 		ENABLE_RETRIEVAL_QUERY_GENERATION: true,
 		QUERY_GENERATION_PROMPT_TEMPLATE: '',
 		TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE: '',
-		VOICE_MODE_PROMPT_TEMPLATE: ''
+		VOICE_MODE_PROMPT_TEMPLATE: '',
+		ENABLE_CHAT_HISTORY_COMPACTION: false,
+		CHAT_HISTORY_COMPACTION_THRESHOLD: 64000,
+		CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE: ''
 	};
 
 	const updateInterfaceHandler = async () => {
@@ -287,6 +290,61 @@
 						>
 							<Textarea
 								bind:value={taskConfig.FOLLOW_UP_GENERATION_PROMPT_TEMPLATE}
+								placeholder={$i18n.t(
+									'Leave empty to use the default prompt, or enter a custom prompt'
+								)}
+							/>
+						</Tooltip>
+					</div>
+				{/if}
+
+				<div class="mb-2.5 flex w-full items-center justify-between">
+					<div class=" self-center text-xs font-medium">
+						{$i18n.t('Chat History Compaction')}
+					</div>
+
+					<Tooltip
+						content={$i18n.t(
+							'When enabled, older messages are automatically summarised when the conversation exceeds the character threshold, ensuring the LLM can always respond'
+						)}
+					>
+						<Switch bind:state={taskConfig.ENABLE_CHAT_HISTORY_COMPACTION} />
+					</Tooltip>
+				</div>
+
+				{#if taskConfig.ENABLE_CHAT_HISTORY_COMPACTION}
+					<div class="mb-2.5">
+						<div class=" mb-1 text-xs font-medium">
+							{$i18n.t('Compaction Threshold (characters)')}
+						</div>
+
+						<Tooltip
+							content={$i18n.t(
+								'Total character count across all messages that triggers compaction. Default is 64000 (~16k tokens).'
+							)}
+							placement="top-start"
+						>
+							<input
+								class="w-full outline-hidden bg-transparent"
+								type="number"
+								min="1000"
+								bind:value={taskConfig.CHAT_HISTORY_COMPACTION_THRESHOLD}
+								placeholder="64000"
+							/>
+						</Tooltip>
+					</div>
+
+					<div class="mb-2.5">
+						<div class=" mb-1 text-xs font-medium">
+							{$i18n.t('Chat History Compaction Prompt')}
+						</div>
+
+						<Tooltip
+							content={$i18n.t('Leave empty to use the default prompt, or enter a custom prompt')}
+							placement="top-start"
+						>
+							<Textarea
+								bind:value={taskConfig.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE}
 								placeholder={$i18n.t(
 									'Leave empty to use the default prompt, or enter a custom prompt'
 								)}
