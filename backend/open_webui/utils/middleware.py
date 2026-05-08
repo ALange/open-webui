@@ -2276,7 +2276,7 @@ async def compact_chat_history(request, form_data: dict, user, task_model_id: st
         response_data = None
         if isinstance(response, JSONResponse):
             try:
-                response_data = json.loads(response.body.decode('utf-8', 'replace'))
+                response_data = json.loads(response.body.decode('utf-8'))
             except Exception:
                 pass
         elif isinstance(response, dict):
