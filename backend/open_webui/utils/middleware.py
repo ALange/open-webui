@@ -2480,7 +2480,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         start_ratio = getattr(request.app.state.config, 'CHAT_HISTORY_COMPACTION_START_RATIO', 1.0)
         # Validate on backend as well so direct API config updates remain safe even
         # if frontend validation is bypassed.
-        start_ratio = min(max(float(start_ratio), 0.0), 1.0)
+        try:
+            start_ratio = float(start_ratio)
+        except (TypeError, ValueError):
+            start_ratio = 1.0
+        start_ratio = min(max(start_ratio, 0.0), 1.0)
         trigger_threshold = int(threshold * start_ratio)
         total_chars = sum(
             len(get_content_from_message(m) or '') for m in form_data.get('messages', [])
