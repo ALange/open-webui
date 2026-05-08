@@ -87,7 +87,8 @@
 		generateMoACompletion,
 		stopTask,
 		stopTasksByChatId,
-		getTaskIdsByChatId
+		getTaskIdsByChatId,
+		getTaskConfig
 	} from '$lib/apis';
 	import { getTools } from '$lib/apis/tools';
 	import { uploadFile } from '$lib/apis/files';
@@ -109,6 +110,8 @@
 	import Sidebar from '../icons/Sidebar.svelte';
 	import Image from '../common/Image.svelte';
 	import { getBanners } from '$lib/apis/configs';
+
+	const DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD = 64000;
 
 	export let chatIdProp = '';
 
@@ -175,12 +178,86 @@
 	let chatFiles = [];
 	let files = [];
 	let params = {};
+	let chatHistoryCompactionConfig: {
+		enabled: boolean;
+		threshold: number;
+		startRatio: number;
+	} = {
+		enabled: false,
+		threshold: DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD,
+		startRatio: 1.0
+	};
+	let latestCompactionStatus: {
+		description?: string;
+		done?: boolean;
+		error?: boolean;
+	} | null = null;
+	let conversationMessages = [];
+	let contextUsageChars = 0;
+	let compactionThreshold = DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD;
+	let compactionStartRatio = 1.0;
+	let compactionStartChars = DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD;
+	let contextUsagePercent = 0;
+	let compactionStartPercent = 100;
+	let showContextUsageBar = false;
 
 	$: if (chatIdProp) {
 		navigateHandler();
 	}
 
+	/**
+	 * Approximates message content length across supported message content formats:
+	 * plain strings, multimodal arrays (string items or objects with text), and
+	 * generic objects (serialized length fallback).
+	 */
+	const getMessageContentLength = (content: unknown): number => {
+		if (typeof content === 'string') {
+			return content.length;
+		}
+
+		if (Array.isArray(content)) {
+			return content.reduce((acc, part) => {
+				if (typeof part === 'string') {
+					return acc + part.length;
+				}
+				if (part && typeof part === 'object') {
+					const text = (part as { text?: string }).text;
+					if (typeof text === 'string') {
+						return acc + text.length;
+					}
+				}
+				return acc;
+			}, 0);
+		}
+
+		if (content && typeof content === 'object') {
+			return JSON.stringify(content).length;
+		}
+
+		return 0;
+	};
+
+	$: conversationMessages = createMessagesList(history, history.currentId);
+	$: contextUsageChars = conversationMessages.reduce(
+		(total, message) => total + getMessageContentLength(message?.content),
+		0
+	);
+	$: compactionThreshold = Math.max(
+		1,
+		Number(chatHistoryCompactionConfig.threshold) || DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD
+	);
+	$: compactionStartRatio = Math.min(
+		Math.max(Number(chatHistoryCompactionConfig.startRatio) || 1.0, 0),
+		1
+	);
+	$: compactionStartChars = Math.max(1, Math.floor(compactionThreshold * compactionStartRatio));
+	$: contextUsagePercent = Math.min((contextUsageChars / compactionThreshold) * 100, 100);
+	$: compactionStartPercent = Math.min((compactionStartChars / compactionThreshold) * 100, 100);
+	$: showContextUsageBar = chatHistoryCompactionConfig.enabled && conversationMessages.length > 0;
+
 	const navigateHandler = async () => {
+		latestCompactionStatus = null;
+
 		// Mark the outgoing chat as read before loading the new one.
 		// $chatId still holds the previous chat here — loadChat() updates it.
 		if ($chatId && $chatId !== chatIdProp && !$temporaryChatEnabled) {
@@ -456,6 +533,9 @@
 						message.statusHistory.push(data);
 					} else {
 						message.statusHistory = [data];
+					}
+					if (data?.action === 'chat_history_compaction') {
+						latestCompactionStatus = data;
 					}
 				} else if (type === 'chat:completion') {
 					chatCompletionEventHandler(data, message, event.chat_id);
@@ -769,6 +849,19 @@
 		);
 
 		const init = async () => {
+			try {
+				const taskConfig = await getTaskConfig(localStorage.token);
+				chatHistoryCompactionConfig = {
+					enabled: taskConfig?.ENABLE_CHAT_HISTORY_COMPACTION ?? false,
+					threshold:
+						taskConfig?.CHAT_HISTORY_COMPACTION_THRESHOLD ??
+						DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD,
+					startRatio: taskConfig?.CHAT_HISTORY_COMPACTION_START_RATIO ?? 1.0
+				};
+			} catch (e) {
+				console.error('Failed to load task config for context usage bar:', e);
+			}
+
 			if (!chatIdProp) {
 				loading = false;
 				await tick();
@@ -1077,6 +1170,7 @@
 
 	const initNewChat = async () => {
 		console.log('initNewChat');
+		latestCompactionStatus = null;
 		if ($user?.role !== 'admin' && $user?.permissions?.chat?.temporary_enforced) {
 			await temporaryChatEnabled.set(true);
 		}
@@ -2901,7 +2995,7 @@
 					/>
 
 					<div id="chat-pane" class="flex flex-col flex-auto z-10 w-full @container overflow-auto">
-						{#if ($settings?.landingPageMode === 'chat' && !$selectedFolder) || createMessagesList(history, history.currentId).length > 0}
+						{#if ($settings?.landingPageMode === 'chat' && !$selectedFolder) || conversationMessages.length > 0}
 							<div
 								class=" pb-2.5 flex flex-col justify-between w-full flex-auto overflow-auto h-0 max-w-full z-10 scrollbar-hidden"
 								id="messages-container"
@@ -2939,6 +3033,37 @@
 							</div>
 
 							<div class=" pb-2 {dragged ? 'z-0' : 'z-10'}">
+								{#if showContextUsageBar}
+									<div class="px-4 pb-2">
+										<div class="w-full h-1 rounded-full bg-gray-200/70 dark:bg-gray-800/80 overflow-hidden">
+											<div
+												role="progressbar"
+												aria-label={$i18n.t('Context usage')}
+												aria-valuemin={0}
+												aria-valuemax={compactionThreshold}
+												aria-valuenow={contextUsageChars}
+												class="h-full bg-gray-400/80 dark:bg-gray-500/80"
+												style={`width: ${contextUsagePercent}%`}
+											></div>
+										</div>
+										<div class="mt-1 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
+											<div>
+												{$i18n.t('Context')}: {contextUsageChars}/{compactionThreshold}
+												({contextUsagePercent.toFixed(0)}%)
+											</div>
+											<div>{$i18n.t('Compaction starts at')} {compactionStartPercent.toFixed(0)}%</div>
+										</div>
+										{#if latestCompactionStatus?.description}
+											<div
+												class="mt-0.5 text-[11px] {latestCompactionStatus?.error
+													? 'text-red-500 dark:text-red-400'
+													: 'text-gray-500 dark:text-gray-400'}"
+											>
+												{latestCompactionStatus.description}
+											</div>
+										{/if}
+									</div>
+								{/if}
 								<MessageInput
 									bind:this={messageInput}
 									{history}
