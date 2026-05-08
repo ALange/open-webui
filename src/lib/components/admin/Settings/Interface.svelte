@@ -34,6 +34,7 @@
 		VOICE_MODE_PROMPT_TEMPLATE: '',
 		ENABLE_CHAT_HISTORY_COMPACTION: false,
 		CHAT_HISTORY_COMPACTION_THRESHOLD: 64000,
+		CHAT_HISTORY_COMPACTION_START_RATIO: 1.0,
 		CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE: ''
 	};
 
@@ -330,6 +331,29 @@
 								min="1000"
 								bind:value={taskConfig.CHAT_HISTORY_COMPACTION_THRESHOLD}
 								placeholder="64000"
+							/>
+						</Tooltip>
+					</div>
+
+					<div class="mb-2.5">
+						<div class=" mb-1 text-xs font-medium">
+							{$i18n.t('Compaction Start Ratio')}
+						</div>
+
+						<Tooltip
+							content={$i18n.t(
+								'Start compaction at this percentage of the threshold (0.75 means 75%).'
+							)}
+							placement="top-start"
+						>
+							<input
+								class="w-full outline-hidden bg-transparent"
+								type="number"
+								min="0.1"
+								max="1"
+								step="0.01"
+								bind:value={taskConfig.CHAT_HISTORY_COMPACTION_START_RATIO}
+								placeholder="1.0"
 							/>
 						</Tooltip>
 					</div>

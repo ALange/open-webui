@@ -1939,6 +1939,12 @@ CHAT_HISTORY_COMPACTION_THRESHOLD = PersistentConfig(
     int(os.environ.get('CHAT_HISTORY_COMPACTION_THRESHOLD', '64000')),
 )
 
+CHAT_HISTORY_COMPACTION_START_RATIO = PersistentConfig(
+    'CHAT_HISTORY_COMPACTION_START_RATIO',
+    'task.chat_history_compaction.start_ratio',
+    float(os.environ.get('CHAT_HISTORY_COMPACTION_START_RATIO', '1.0')),
+)
+
 CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE = PersistentConfig(
     'CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE',
     'task.chat_history_compaction.prompt_template',

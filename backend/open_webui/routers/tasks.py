@@ -84,6 +84,7 @@ async def get_task_config(request: Request, user=Depends(get_verified_user)):
         'VOICE_MODE_PROMPT_TEMPLATE': request.app.state.config.VOICE_MODE_PROMPT_TEMPLATE,
         'ENABLE_CHAT_HISTORY_COMPACTION': request.app.state.config.ENABLE_CHAT_HISTORY_COMPACTION,
         'CHAT_HISTORY_COMPACTION_THRESHOLD': request.app.state.config.CHAT_HISTORY_COMPACTION_THRESHOLD,
+        'CHAT_HISTORY_COMPACTION_START_RATIO': request.app.state.config.CHAT_HISTORY_COMPACTION_START_RATIO,
         'CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE': request.app.state.config.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE,
     }
 
@@ -107,6 +108,7 @@ class TaskConfigForm(BaseModel):
     VOICE_MODE_PROMPT_TEMPLATE: Optional[str]
     ENABLE_CHAT_HISTORY_COMPACTION: bool
     CHAT_HISTORY_COMPACTION_THRESHOLD: int
+    CHAT_HISTORY_COMPACTION_START_RATIO: float
     CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE: str
 
 
@@ -139,6 +141,7 @@ async def update_task_config(request: Request, form_data: TaskConfigForm, user=D
 
     request.app.state.config.ENABLE_CHAT_HISTORY_COMPACTION = form_data.ENABLE_CHAT_HISTORY_COMPACTION
     request.app.state.config.CHAT_HISTORY_COMPACTION_THRESHOLD = form_data.CHAT_HISTORY_COMPACTION_THRESHOLD
+    request.app.state.config.CHAT_HISTORY_COMPACTION_START_RATIO = form_data.CHAT_HISTORY_COMPACTION_START_RATIO
     request.app.state.config.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE = form_data.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE
 
     return {
@@ -160,6 +163,7 @@ async def update_task_config(request: Request, form_data: TaskConfigForm, user=D
         'VOICE_MODE_PROMPT_TEMPLATE': request.app.state.config.VOICE_MODE_PROMPT_TEMPLATE,
         'ENABLE_CHAT_HISTORY_COMPACTION': request.app.state.config.ENABLE_CHAT_HISTORY_COMPACTION,
         'CHAT_HISTORY_COMPACTION_THRESHOLD': request.app.state.config.CHAT_HISTORY_COMPACTION_THRESHOLD,
+        'CHAT_HISTORY_COMPACTION_START_RATIO': request.app.state.config.CHAT_HISTORY_COMPACTION_START_RATIO,
         'CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE': request.app.state.config.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE,
     }
 

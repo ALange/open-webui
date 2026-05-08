@@ -2234,7 +2234,9 @@ def strip_skill_mentions(messages: list[dict]) -> None:
 _COMPACTION_KEEP_RECENT = 4
 
 
-async def compact_chat_history(request, form_data: dict, user, task_model_id: str) -> dict:
+async def compact_chat_history(
+    request, form_data: dict, user, task_model_id: str, event_emitter=None
+) -> dict:
     """Summarize the older portion of the chat history to reduce context length.
 
     Preserves the system message (if any) and the most recent
@@ -2271,6 +2273,18 @@ async def compact_chat_history(request, form_data: dict, user, task_model_id: st
     }
 
     try:
+        if event_emitter:
+            await event_emitter(
+                {
+                    'type': 'status',
+                    'data': {
+                        'action': 'chat_history_compaction',
+                        'description': 'Compacting chat history',
+                        'done': False,
+                    },
+                }
+            )
+
         response = await generate_chat_completion(request, form_data=payload, user=user)
 
         response_data = None
@@ -2300,8 +2314,42 @@ async def compact_chat_history(request, form_data: dict, user, task_model_id: st
                 })
                 new_messages.extend(recent_messages)
                 form_data['messages'] = new_messages
+                if event_emitter:
+                    await event_emitter(
+                        {
+                            'type': 'status',
+                            'data': {
+                                'action': 'chat_history_compaction',
+                                'description': 'Chat history compaction completed',
+                                'done': True,
+                            },
+                        }
+                    )
+            elif event_emitter:
+                await event_emitter(
+                    {
+                        'type': 'status',
+                        'data': {
+                            'action': 'chat_history_compaction',
+                            'description': 'Chat history compaction skipped',
+                            'done': True,
+                        },
+                    }
+                )
     except Exception as e:
         log.warning(f'Chat history compaction failed, proceeding without compaction: {e}')
+        if event_emitter:
+            await event_emitter(
+                {
+                    'type': 'status',
+                    'data': {
+                        'action': 'chat_history_compaction',
+                        'description': 'Chat history compaction failed',
+                        'done': True,
+                        'error': True,
+                    },
+                }
+            )
 
     return form_data
 
@@ -2429,14 +2477,19 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # character threshold, summarise older messages so the LLM can still respond.
     if getattr(request.app.state.config, 'ENABLE_CHAT_HISTORY_COMPACTION', False):
         threshold = getattr(request.app.state.config, 'CHAT_HISTORY_COMPACTION_THRESHOLD', 64000)
+        start_ratio = getattr(request.app.state.config, 'CHAT_HISTORY_COMPACTION_START_RATIO', 1.0)
+        start_ratio = min(max(float(start_ratio), 0.0), 1.0)
+        trigger_threshold = int(threshold * start_ratio)
         total_chars = sum(
             len(get_content_from_message(m) or '') for m in form_data.get('messages', [])
         )
-        if total_chars > threshold:
+        if total_chars > trigger_threshold:
             log.debug(
-                f'Chat history compaction triggered: {total_chars} chars > {threshold} threshold'
+                f'Chat history compaction triggered: {total_chars} chars > {trigger_threshold} trigger threshold ({threshold} max, ratio {start_ratio})'
             )
-            form_data = await compact_chat_history(request, form_data, user, task_model_id)
+            form_data = await compact_chat_history(
+                request, form_data, user, task_model_id, event_emitter
+            )
 
     # Folder "Project" handling
     # Check if the request has chat_id and is inside of a folder
