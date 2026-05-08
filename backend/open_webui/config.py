@@ -1927,6 +1927,39 @@ ENABLE_FOLLOW_UP_GENERATION = PersistentConfig(
     os.environ.get('ENABLE_FOLLOW_UP_GENERATION', 'True').lower() == 'true',
 )
 
+ENABLE_CHAT_HISTORY_COMPACTION = PersistentConfig(
+    'ENABLE_CHAT_HISTORY_COMPACTION',
+    'task.chat_history_compaction.enable',
+    os.environ.get('ENABLE_CHAT_HISTORY_COMPACTION', 'False').lower() == 'true',
+)
+
+CHAT_HISTORY_COMPACTION_THRESHOLD = PersistentConfig(
+    'CHAT_HISTORY_COMPACTION_THRESHOLD',
+    'task.chat_history_compaction.threshold',
+    int(os.environ.get('CHAT_HISTORY_COMPACTION_THRESHOLD', '64000')),
+)
+
+CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE = PersistentConfig(
+    'CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE',
+    'task.chat_history_compaction.prompt_template',
+    os.environ.get('CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE', ''),
+)
+
+DEFAULT_CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE = """### Task:
+Summarize the earlier portion of this conversation concisely, capturing all key information, decisions, context, and conclusions. The summary will replace the earlier messages to reduce context length while preserving continuity.
+
+### Guidelines:
+- Preserve all important facts, user preferences, decisions, code snippets, specific values, and technical details that may be referenced later.
+- Write in third person describing what was discussed (e.g., "The user asked about X. The assistant explained Y.").
+- Be concise but complete — omit only small talk and purely redundant exchanges.
+- Use the conversation's primary language; default to English if multilingual.
+- Your entire response must consist solely of the summary text, with no introductory or concluding remarks.
+
+### Conversation History to Summarize:
+<chat_history>
+{{MESSAGES}}
+</chat_history>"""
+
 ENABLE_TAGS_GENERATION = PersistentConfig(
     'ENABLE_TAGS_GENERATION',
     'task.tags.enable',

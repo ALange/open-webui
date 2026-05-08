@@ -10,6 +10,7 @@ from open_webui.utils.chat import generate_chat_completion
 from open_webui.utils.task import (
     title_generation_template,
     follow_up_generation_template,
+    chat_history_compaction_template,
     query_generation_template,
     image_prompt_generation_template,
     autocomplete_generation_template,
@@ -27,6 +28,7 @@ from open_webui.utils.task import get_task_model_id
 from open_webui.config import (
     DEFAULT_TITLE_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_FOLLOW_UP_GENERATION_PROMPT_TEMPLATE,
+    DEFAULT_CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE,
     DEFAULT_TAGS_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_QUERY_GENERATION_PROMPT_TEMPLATE,
@@ -80,6 +82,9 @@ async def get_task_config(request: Request, user=Depends(get_verified_user)):
         'QUERY_GENERATION_PROMPT_TEMPLATE': request.app.state.config.QUERY_GENERATION_PROMPT_TEMPLATE,
         'TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE': request.app.state.config.TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE,
         'VOICE_MODE_PROMPT_TEMPLATE': request.app.state.config.VOICE_MODE_PROMPT_TEMPLATE,
+        'ENABLE_CHAT_HISTORY_COMPACTION': request.app.state.config.ENABLE_CHAT_HISTORY_COMPACTION,
+        'CHAT_HISTORY_COMPACTION_THRESHOLD': request.app.state.config.CHAT_HISTORY_COMPACTION_THRESHOLD,
+        'CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE': request.app.state.config.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE,
     }
 
 
@@ -100,6 +105,9 @@ class TaskConfigForm(BaseModel):
     QUERY_GENERATION_PROMPT_TEMPLATE: str
     TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE: str
     VOICE_MODE_PROMPT_TEMPLATE: Optional[str]
+    ENABLE_CHAT_HISTORY_COMPACTION: bool
+    CHAT_HISTORY_COMPACTION_THRESHOLD: int
+    CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE: str
 
 
 @router.post('/config/update')
@@ -129,6 +137,10 @@ async def update_task_config(request: Request, form_data: TaskConfigForm, user=D
 
     request.app.state.config.VOICE_MODE_PROMPT_TEMPLATE = form_data.VOICE_MODE_PROMPT_TEMPLATE
 
+    request.app.state.config.ENABLE_CHAT_HISTORY_COMPACTION = form_data.ENABLE_CHAT_HISTORY_COMPACTION
+    request.app.state.config.CHAT_HISTORY_COMPACTION_THRESHOLD = form_data.CHAT_HISTORY_COMPACTION_THRESHOLD
+    request.app.state.config.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE = form_data.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE
+
     return {
         'TASK_MODEL': request.app.state.config.TASK_MODEL,
         'TASK_MODEL_EXTERNAL': request.app.state.config.TASK_MODEL_EXTERNAL,
@@ -146,6 +158,9 @@ async def update_task_config(request: Request, form_data: TaskConfigForm, user=D
         'QUERY_GENERATION_PROMPT_TEMPLATE': request.app.state.config.QUERY_GENERATION_PROMPT_TEMPLATE,
         'TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE': request.app.state.config.TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE,
         'VOICE_MODE_PROMPT_TEMPLATE': request.app.state.config.VOICE_MODE_PROMPT_TEMPLATE,
+        'ENABLE_CHAT_HISTORY_COMPACTION': request.app.state.config.ENABLE_CHAT_HISTORY_COMPACTION,
+        'CHAT_HISTORY_COMPACTION_THRESHOLD': request.app.state.config.CHAT_HISTORY_COMPACTION_THRESHOLD,
+        'CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE': request.app.state.config.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE,
     }
 
 
@@ -279,6 +294,65 @@ async def generate_follow_ups(request: Request, form_data: dict, user=Depends(ge
     }
 
     # Process the payload through the pipeline
+    try:
+        payload = await process_pipeline_inlet_filter(request, payload, user, models)
+    except Exception as e:
+        raise e
+
+    try:
+        return await generate_chat_completion(request, form_data=payload, user=user)
+    except Exception as e:
+        log.error('Exception occurred', exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={'detail': 'An internal error has occurred.'},
+        )
+
+
+@router.post('/chat/compaction/completions')
+async def generate_chat_compaction(request: Request, form_data: dict, user=Depends(get_verified_user)):
+    if getattr(request.state, 'direct', False) and hasattr(request.state, 'model'):
+        models = {
+            request.state.model['id']: request.state.model,
+        }
+    else:
+        models = request.app.state.MODELS
+
+    model_id = form_data['model']
+    if model_id not in models:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.MODEL_NOT_FOUND(),
+        )
+
+    task_model_id = get_task_model_id(
+        model_id,
+        request.app.state.config.TASK_MODEL,
+        request.app.state.config.TASK_MODEL_EXTERNAL,
+        models,
+    )
+
+    log.debug(f'generating chat history compaction using model {task_model_id} for user {user.email}')
+
+    if request.app.state.config.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE != '':
+        template = request.app.state.config.CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE
+    else:
+        template = DEFAULT_CHAT_HISTORY_COMPACTION_PROMPT_TEMPLATE
+
+    content = chat_history_compaction_template(template, form_data['messages'], user)
+
+    payload = {
+        'model': task_model_id,
+        'messages': [{'role': 'user', 'content': content}],
+        'stream': False,
+        'metadata': {
+            **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
+            'task': 'chat_history_compaction',
+            'task_body': form_data,
+            'chat_id': form_data.get('chat_id', None),
+        },
+    }
+
     try:
         payload = await process_pipeline_inlet_filter(request, payload, user, models)
     except Exception as e:
