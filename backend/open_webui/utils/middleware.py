@@ -2483,9 +2483,12 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         try:
             start_ratio = float(start_ratio)
         except (TypeError, ValueError):
+            log.warning(
+                f'Invalid CHAT_HISTORY_COMPACTION_START_RATIO value ({start_ratio}); falling back to 1.0'
+            )
             start_ratio = 1.0
         start_ratio = min(max(start_ratio, 0.0), 1.0)
-        trigger_threshold = int(threshold * start_ratio)
+        trigger_threshold = max(1, int(threshold * start_ratio))
         total_chars = sum(
             len(get_content_from_message(m) or '') for m in form_data.get('messages', [])
         )

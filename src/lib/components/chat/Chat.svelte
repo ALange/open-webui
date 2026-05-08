@@ -205,6 +205,11 @@
 		navigateHandler();
 	}
 
+	/**
+	 * Approximates message content length across supported message content formats:
+	 * plain strings, multimodal arrays (string items or objects with text), and
+	 * generic objects (serialized length fallback).
+	 */
 	const getMessageContentLength = (content: unknown): number => {
 		if (typeof content === 'string') {
 			return content.length;
