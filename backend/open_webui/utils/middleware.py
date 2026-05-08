@@ -2299,11 +2299,12 @@ async def compact_chat_history(
 
         if response_data:
             usage = normalize_usage(response_data.get('usage', {}) or {})
-            response_tokens_per_second = usage.get('response_token/s')
+            raw_response_tokens_per_second = usage.get('response_token/s')
+            response_tokens_per_second = None
             try:
-                response_tokens_per_second = float(response_tokens_per_second)
+                response_tokens_per_second = float(raw_response_tokens_per_second)
             except (TypeError, ValueError):
-                response_tokens_per_second = None
+                pass
 
             summary = (
                 response_data.get('choices', [{}])[0]
