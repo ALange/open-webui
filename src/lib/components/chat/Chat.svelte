@@ -267,11 +267,15 @@
 	$: compactionStartPercent = Math.min((compactionStartChars / compactionThreshold) * 100, 100);
 	$: showContextUsageBar = chatHistoryCompactionConfig.enabled && conversationMessages.length > 0;
 
-	const navigateHandler = async () => {
+	const resetCompactionContextState = () => {
 		latestCompactionStatus = null;
 		latestCompactionUsageChars = null;
 		contextUsageCharsAtCompactionStart = null;
 		currentTokensPerSecond = null;
+	};
+
+	const navigateHandler = async () => {
+		resetCompactionContextState();
 
 		// Mark the outgoing chat as read before loading the new one.
 		// $chatId still holds the previous chat here — loadChat() updates it.
@@ -1199,7 +1203,7 @@
 
 	const initNewChat = async () => {
 		console.log('initNewChat');
-		latestCompactionStatus = null;
+		resetCompactionContextState();
 		if ($user?.role !== 'admin' && $user?.permissions?.chat?.temporary_enforced) {
 			await temporaryChatEnabled.set(true);
 		}
