@@ -210,6 +210,8 @@
 	let streamingResponseMessageId: string | null = null;
 	let streamingResponseStartedAt: number | null = null;
 	let streamingResponseEstimatedTokens = 0;
+	const CHARS_PER_TOKEN_ESTIMATE = 4;
+	const MIN_ELAPSED_SECONDS_FOR_TOKEN_RATE = 0.1;
 
 	$: if (chatIdProp) {
 		navigateHandler();
@@ -311,17 +313,23 @@
 		} else if (absoluteContent) {
 			streamingResponseEstimatedTokens = Math.max(
 				streamingResponseEstimatedTokens,
-				Math.max(1, Math.round(absoluteContent.length / 4))
+				Math.max(1, Math.round(absoluteContent.length / CHARS_PER_TOKEN_ESTIMATE))
 			);
 		} else if (deltaContent) {
-			streamingResponseEstimatedTokens += Math.max(1, Math.round(deltaContent.length / 4));
+			streamingResponseEstimatedTokens += Math.max(
+				1,
+				Math.round(deltaContent.length / CHARS_PER_TOKEN_ESTIMATE)
+			);
 		}
 
 		if (streamingResponseEstimatedTokens <= 0 || streamingResponseStartedAt === null) {
 			return;
 		}
 
-		const elapsedSeconds = Math.max((Date.now() - streamingResponseStartedAt) / 1000, 0.1);
+		const elapsedSeconds = Math.max(
+			(Date.now() - streamingResponseStartedAt) / 1000,
+			MIN_ELAPSED_SECONDS_FOR_TOKEN_RATE
+		);
 		currentTokensPerSecond = streamingResponseEstimatedTokens / elapsedSeconds;
 	};
 
