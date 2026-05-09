@@ -210,8 +210,9 @@
 	let streamingResponseMessageId: string | null = null;
 	let streamingResponseStartedAt: number | null = null;
 	let streamingResponseEstimatedTokens = 0;
-	const CHARS_PER_TOKEN_ESTIMATE = 4;
-	const ELAPSED_SECONDS_FLOOR_FOR_TOKEN_RATE = 0.1;
+	const AVG_CHARS_PER_TOKEN = 4;
+	const MIN_ELAPSED_SECONDS = 0.1;
+	const RESPONSE_TOKENS_PER_SECOND_KEY = 'response_token/s';
 
 	$: if (chatIdProp) {
 		navigateHandler();
@@ -301,7 +302,7 @@
 			currentTokensPerSecond = null;
 		}
 
-		const usageTokensPerSecond = Number(usageData?.['response_token/s']);
+		const usageTokensPerSecond = Number(usageData?.[RESPONSE_TOKENS_PER_SECOND_KEY]);
 		if (Number.isFinite(usageTokensPerSecond) && usageTokensPerSecond > 0) {
 			currentTokensPerSecond = usageTokensPerSecond;
 			return;
@@ -311,15 +312,13 @@
 		if (Number.isFinite(usageOutputTokens) && usageOutputTokens >= 0) {
 			streamingResponseEstimatedTokens = usageOutputTokens;
 		} else if (absoluteContent) {
-			const estimatedAbsoluteTokens = Math.ceil(
-				absoluteContent.length / CHARS_PER_TOKEN_ESTIMATE
-			);
+			const estimatedAbsoluteTokens = Math.ceil(absoluteContent.length / AVG_CHARS_PER_TOKEN);
 			streamingResponseEstimatedTokens = Math.max(
 				streamingResponseEstimatedTokens,
 				estimatedAbsoluteTokens
 			);
 		} else if (deltaContent) {
-			const estimatedDeltaTokens = Math.ceil(deltaContent.length / CHARS_PER_TOKEN_ESTIMATE);
+			const estimatedDeltaTokens = Math.ceil(deltaContent.length / AVG_CHARS_PER_TOKEN);
 			if (estimatedDeltaTokens > 0) {
 				streamingResponseEstimatedTokens += estimatedDeltaTokens;
 			}
@@ -331,7 +330,7 @@
 
 		const elapsedSeconds = Math.max(
 			(Date.now() - streamingResponseStartedAt) / 1000,
-			ELAPSED_SECONDS_FLOOR_FOR_TOKEN_RATE
+			MIN_ELAPSED_SECONDS
 		);
 		currentTokensPerSecond = streamingResponseEstimatedTokens / elapsedSeconds;
 	};
