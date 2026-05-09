@@ -211,7 +211,7 @@
 	let streamingResponseStartedAt: number | null = null;
 	let streamingResponseEstimatedTokens = 0;
 	const CHARS_PER_TOKEN_ESTIMATE = 4;
-	const MIN_ELAPSED_SECONDS_FOR_TOKEN_RATE = 0.1;
+	const ELAPSED_SECONDS_FLOOR_FOR_TOKEN_RATE = 0.1;
 
 	$: if (chatIdProp) {
 		navigateHandler();
@@ -311,15 +311,18 @@
 		if (Number.isFinite(usageOutputTokens) && usageOutputTokens >= 0) {
 			streamingResponseEstimatedTokens = usageOutputTokens;
 		} else if (absoluteContent) {
+			const estimatedAbsoluteTokens = Math.ceil(
+				absoluteContent.length / CHARS_PER_TOKEN_ESTIMATE
+			);
 			streamingResponseEstimatedTokens = Math.max(
 				streamingResponseEstimatedTokens,
-				Math.max(1, Math.round(absoluteContent.length / CHARS_PER_TOKEN_ESTIMATE))
+				estimatedAbsoluteTokens
 			);
 		} else if (deltaContent) {
-			streamingResponseEstimatedTokens += Math.max(
-				1,
-				Math.round(deltaContent.length / CHARS_PER_TOKEN_ESTIMATE)
-			);
+			const estimatedDeltaTokens = Math.ceil(deltaContent.length / CHARS_PER_TOKEN_ESTIMATE);
+			if (estimatedDeltaTokens > 0) {
+				streamingResponseEstimatedTokens += estimatedDeltaTokens;
+			}
 		}
 
 		if (streamingResponseEstimatedTokens <= 0 || streamingResponseStartedAt === null) {
@@ -328,7 +331,7 @@
 
 		const elapsedSeconds = Math.max(
 			(Date.now() - streamingResponseStartedAt) / 1000,
-			MIN_ELAPSED_SECONDS_FOR_TOKEN_RATE
+			ELAPSED_SECONDS_FLOOR_FOR_TOKEN_RATE
 		);
 		currentTokensPerSecond = streamingResponseEstimatedTokens / elapsedSeconds;
 	};
