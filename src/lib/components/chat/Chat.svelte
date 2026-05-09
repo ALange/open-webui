@@ -210,7 +210,9 @@
 	let streamingResponseMessageId: string | null = null;
 	let streamingResponseStartedAt: number | null = null;
 	let streamingResponseEstimatedTokens = 0;
+	// Lightweight fallback for providers that don't stream usage continuously.
 	const AVG_CHARS_PER_TOKEN = 4;
+	// Avoid division spikes when the first chunks arrive within a few milliseconds.
 	const MIN_ELAPSED_SECONDS = 0.1;
 	const RESPONSE_TOKENS_PER_SECOND_KEY = 'response_token/s';
 
