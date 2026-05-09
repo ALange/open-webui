@@ -207,6 +207,14 @@
 	let contextUsagePercent = 0;
 	let compactionStartPercent = 100;
 	let showContextUsageBar = false;
+	let streamingResponseMessageId: string | null = null;
+	let streamingResponseStartedAt: number | null = null;
+	let streamingResponseEstimatedTokens = 0;
+	// Rough fallback (~4 chars/token for English-like text) when providers don't stream usage.
+	const AVG_CHARS_PER_TOKEN = 4;
+	// Floor elapsed time at 0.1s to avoid unrealistically high early token/s spikes.
+	const MIN_ELAPSED_SECONDS = 0.1;
+	const RESPONSE_TOKENS_PER_SECOND_KEY = 'response_token/s';
 
 	$: if (chatIdProp) {
 		navigateHandler();
@@ -272,6 +280,61 @@
 		latestCompactionUsageChars = null;
 		contextUsageCharsAtCompactionStart = null;
 		currentTokensPerSecond = null;
+		streamingResponseMessageId = null;
+		streamingResponseStartedAt = null;
+		streamingResponseEstimatedTokens = 0;
+	};
+
+	const updateCurrentTokensPerSecond = (
+		messageId: string,
+		{
+			deltaContent = '',
+			absoluteContent = '',
+			usageData = null
+		}: {
+			deltaContent?: string;
+			absoluteContent?: string;
+			usageData?: Record<string, unknown> | null;
+		} = {}
+	) => {
+		if (streamingResponseMessageId !== messageId) {
+			streamingResponseMessageId = messageId;
+			streamingResponseStartedAt = Date.now();
+			streamingResponseEstimatedTokens = 0;
+			currentTokensPerSecond = null;
+		}
+
+		const usageTokensPerSecond = Number(usageData?.[RESPONSE_TOKENS_PER_SECOND_KEY]);
+		if (Number.isFinite(usageTokensPerSecond) && usageTokensPerSecond > 0) {
+			currentTokensPerSecond = usageTokensPerSecond;
+			return;
+		}
+
+		const usageOutputTokens = Number(usageData?.output_tokens ?? usageData?.completion_tokens);
+		if (Number.isFinite(usageOutputTokens) && usageOutputTokens >= 0) {
+			streamingResponseEstimatedTokens = usageOutputTokens;
+		} else if (absoluteContent) {
+			const estimatedAbsoluteTokens = Math.ceil(absoluteContent.length / AVG_CHARS_PER_TOKEN);
+			streamingResponseEstimatedTokens = Math.max(
+				streamingResponseEstimatedTokens,
+				estimatedAbsoluteTokens
+			);
+		} else if (deltaContent) {
+			const estimatedDeltaTokens = Math.ceil(deltaContent.length / AVG_CHARS_PER_TOKEN);
+			if (estimatedDeltaTokens > 0) {
+				streamingResponseEstimatedTokens += estimatedDeltaTokens;
+			}
+		}
+
+		if (streamingResponseEstimatedTokens <= 0 || streamingResponseStartedAt === null) {
+			return;
+		}
+
+		const elapsedSeconds = Math.max(
+			(Date.now() - streamingResponseStartedAt) / 1000,
+			MIN_ELAPSED_SECONDS
+		);
+		currentTokensPerSecond = streamingResponseEstimatedTokens / elapsedSeconds;
 	};
 
 	const navigateHandler = async () => {
@@ -1801,6 +1864,7 @@
 					console.log('Empty response');
 				} else {
 					message.content += value;
+					updateCurrentTokensPerSecond(message.id, { deltaContent: value });
 
 					if (navigator.vibrate && ($settings?.hapticFeedback ?? false)) {
 						navigator.vibrate(5);
@@ -1837,6 +1901,7 @@
 		if (content) {
 			// REALTIME_CHAT_SAVE is disabled
 			message.content = content;
+			updateCurrentTokensPerSecond(message.id, { absoluteContent: content });
 
 			if (navigator.vibrate && ($settings?.hapticFeedback ?? false)) {
 				navigator.vibrate(5);
@@ -1875,16 +1940,16 @@
 
 		if (usage) {
 			message.usage = usage;
-			const tps = Number(usage['response_token/s']);
-			if (Number.isFinite(tps)) {
-				currentTokensPerSecond = tps;
-			}
+			updateCurrentTokensPerSecond(message.id, { usageData: usage });
 		}
 
 		history.messages[message.id] = message;
 
 		if (done) {
 			message.done = true;
+			streamingResponseMessageId = null;
+			streamingResponseStartedAt = null;
+			streamingResponseEstimatedTokens = 0;
 
 			if ($settings.responseAutoCopy) {
 				copyToClipboard(message.content);
