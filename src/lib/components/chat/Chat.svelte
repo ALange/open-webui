@@ -198,7 +198,8 @@
 	let conversationMessages = [];
 	let contextUsageChars = 0;
 	let latestCompactionUsageChars: number | null = null;
-	let latestCompactionTokensPerSecond: number | null = null;
+	let contextUsageCharsAtCompactionStart: number | null = null;
+	let currentTokensPerSecond: number | null = null;
 	let compactionThreshold = DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD;
 	let compactionStartRatio = 1.0;
 	let compactionStartChars = DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD;
@@ -248,7 +249,11 @@
 		(total, message) => total + getMessageContentLength(message?.content),
 		0
 	);
-	$: displayContextUsageChars = latestCompactionUsageChars ?? contextUsageChars;
+	$: displayContextUsageChars =
+		latestCompactionUsageChars !== null && contextUsageCharsAtCompactionStart !== null
+			? latestCompactionUsageChars +
+				Math.max(0, contextUsageChars - contextUsageCharsAtCompactionStart)
+			: contextUsageChars;
 	$: compactionThreshold = Math.max(
 		1,
 		Number(chatHistoryCompactionConfig.threshold) || DEFAULT_CHAT_HISTORY_COMPACTION_THRESHOLD
@@ -265,7 +270,8 @@
 	const navigateHandler = async () => {
 		latestCompactionStatus = null;
 		latestCompactionUsageChars = null;
-		latestCompactionTokensPerSecond = null;
+		contextUsageCharsAtCompactionStart = null;
+		currentTokensPerSecond = null;
 
 		// Mark the outgoing chat as read before loading the new one.
 		// $chatId still holds the previous chat here — loadChat() updates it.
@@ -547,14 +553,18 @@
 						latestCompactionStatus = data;
 
 						const compactionUsageChars = Number(data?.context_usage_chars);
-						latestCompactionUsageChars = Number.isFinite(compactionUsageChars)
-							? compactionUsageChars
-							: null;
+						if (Number.isFinite(compactionUsageChars)) {
+							latestCompactionUsageChars = compactionUsageChars;
+							contextUsageCharsAtCompactionStart = contextUsageChars;
+						} else {
+							latestCompactionUsageChars = null;
+							contextUsageCharsAtCompactionStart = null;
+						}
 
 						const compactionTokensPerSecond = Number(data?.tokens_per_second);
-						latestCompactionTokensPerSecond = Number.isFinite(compactionTokensPerSecond)
-							? compactionTokensPerSecond
-							: null;
+						if (Number.isFinite(compactionTokensPerSecond)) {
+							currentTokensPerSecond = compactionTokensPerSecond;
+						}
 					}
 				} else if (type === 'chat:completion') {
 					chatCompletionEventHandler(data, message, event.chat_id);
@@ -1861,6 +1871,10 @@
 
 		if (usage) {
 			message.usage = usage;
+			const tps = Number(usage['response_token/s']);
+			if (Number.isFinite(tps)) {
+				currentTokensPerSecond = tps;
+			}
 		}
 
 		history.messages[message.id] = message;
@@ -3080,9 +3094,9 @@
 														<div>
 															{$i18n.t('Compaction starts at')} {compactionStartPercent.toFixed(0)}%
 														</div>
-														{#if latestCompactionTokensPerSecond !== null}
+														{#if currentTokensPerSecond !== null}
 															<div>
-																{$i18n.t('Tokens/s')}: {latestCompactionTokensPerSecond.toFixed(2)}
+																{$i18n.t('Tokens/s')}: {currentTokensPerSecond.toFixed(2)}
 															</div>
 														{/if}
 													</div>
